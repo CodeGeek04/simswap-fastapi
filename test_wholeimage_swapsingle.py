@@ -34,6 +34,87 @@ def _totensor(array):
     tensor = torch.from_numpy(array)
     img = tensor.transpose(0, 1).transpose(0, 2).contiguous()
     return img.float().div(255)
+
+
+def run_image_single(img_a, img_b, opt):
+
+    start_epoch, epoch_iter = 1, 0
+    crop_size = opt.crop_size
+
+    torch.nn.Module.dump_patches = True
+    if crop_size == 512:
+        opt.which_epoch = 550000
+        opt.name = '512'
+        mode = 'ffhq'
+    else:
+        mode = 'None'
+    logoclass = watermark_image('./simswaplogo/simswaplogo.png')
+    model = create_model(opt)
+    model.eval()
+
+    spNorm =SpecificNorm()
+    app = Face_detect_crop(name='antelope', root='./insightface_func/models')
+    app.prepare(ctx_id= 0, det_thresh=0.1, det_size=(640,640),mode=mode)
+
+    with torch.no_grad():
+        # pic_a = opt.pic_a_path
+
+        # img_a_whole = cv2.imread(pic_a)
+        try:
+            img_a_align_crop, _ = app.get(img_a,crop_size)
+        except:
+            raise Exception('No face detected in image A')
+        img_a_align_crop_pil = Image.fromarray(cv2.cvtColor(img_a_align_crop[0],cv2.COLOR_BGR2RGB)) 
+        img_a = transformer_Arcface(img_a_align_crop_pil)
+        img_id = img_a.view(-1, img_a.shape[0], img_a.shape[1], img_a.shape[2])
+
+        # convert numpy to tensor
+        img_id = img_id.cuda()
+
+        #create latent id
+        img_id_downsample = F.interpolate(img_id, size=(112,112))
+        latend_id = model.netArc(img_id_downsample)
+        latend_id = F.normalize(latend_id, p=2, dim=1)
+
+
+        ############## Forward Pass ######################
+
+        # pic_b = opt.pic_b_path
+        # img_b_whole = cv2.imread(pic_b)
+
+        try:
+            img_b_align_crop_list, b_mat_list = app.get(img_b,crop_size)
+        except:
+            raise Exception('No face detected in image B')
+        # detect_results = None
+        swap_result_list = []
+
+        b_align_crop_tenor_list = []
+
+        for b_align_crop in img_b_align_crop_list:
+
+            b_align_crop_tenor = _totensor(cv2.cvtColor(b_align_crop,cv2.COLOR_BGR2RGB))[None,...].cuda()
+
+            swap_result = model(None, b_align_crop_tenor, latend_id, None, True)[0]
+            swap_result_list.append(swap_result)
+            b_align_crop_tenor_list.append(b_align_crop_tenor)
+
+        if opt.use_mask:
+            n_classes = 19
+            net = BiSeNet(n_classes=n_classes)
+            net.cuda()
+            save_pth = os.path.join('./parsing_model/checkpoint', '79999_iter.pth')
+            net.load_state_dict(torch.load(save_pth))
+            net.eval()
+        else:
+            net =None
+
+        output = reverse2wholeimage(b_align_crop_tenor_list, swap_result_list, b_mat_list, crop_size, img_b, logoclass, \
+            os.path.join(opt.output_path, 'result_whole_swapsingle.jpg'), opt.no_simswaplogo,pasring_model =net,use_mask=opt.use_mask, norm = spNorm)
+
+        # print('************ Done ! ************')
+        return output
+
 if __name__ == '__main__':
     opt = TestOptions().parse()
 
@@ -53,7 +134,7 @@ if __name__ == '__main__':
 
     spNorm =SpecificNorm()
     app = Face_detect_crop(name='antelope', root='./insightface_func/models')
-    app.prepare(ctx_id= 0, det_thresh=0.6, det_size=(640,640),mode=mode)
+    app.prepare(ctx_id= 0, det_thresh=0.1, det_size=(640,640),mode=mode)
 
     with torch.no_grad():
         pic_a = opt.pic_a_path

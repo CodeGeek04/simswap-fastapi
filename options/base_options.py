@@ -66,7 +66,7 @@ class BaseOptions():
         self.parser.add_argument('--semantic_nc', type=int, default=3, help='number of clusters for features')
         self.initialized = True
 
-    def parse(self, save=True):
+    def parse(self, save=True, print_options=True):
         if not self.initialized:
             self.initialize()
         self.opt = self.parser.parse_args()
@@ -85,10 +85,11 @@ class BaseOptions():
 
         args = vars(self.opt)
 
-        print('------------ Options -------------')
-        for k, v in sorted(args.items()):
-            print('%s: %s' % (str(k), str(v)))
-        print('-------------- End ----------------')
+        if print_options:
+            print('------------ Options -------------')
+            for k, v in sorted(args.items()):
+                print('%s: %s' % (str(k), str(v)))
+            print('-------------- End ----------------')
 
         # save to the disk
         if self.opt.isTrain:
